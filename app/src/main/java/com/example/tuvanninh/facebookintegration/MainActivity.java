@@ -2,12 +2,15 @@ package com.example.tuvanninh.facebookintegration;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.ProgressDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.database.Cursor;
+import android.drm.ProcessedData;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.support.v7.app.AppCompatActivity;
@@ -15,6 +18,7 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 import com.facebook.AccessToken;
@@ -24,6 +28,7 @@ import com.facebook.FacebookException;
 import com.facebook.FacebookSdk;
 import com.facebook.GraphRequest;
 import com.facebook.GraphResponse;
+import com.facebook.HttpMethod;
 import com.facebook.appevents.AppEventsLogger;
 import com.facebook.login.LoginResult;
 import com.facebook.login.widget.LoginButton;
@@ -33,13 +38,20 @@ import com.facebook.share.model.SharePhotoContent;
 import com.facebook.share.widget.ShareDialog;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.Arrays;
+
+import javax.net.ssl.HttpsURLConnection;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -48,9 +60,12 @@ public class MainActivity extends AppCompatActivity {
     private String email,birthday,name, id;
     LoginButton loginButton;
     ImageButton imageButton, shareImageBut;
+    ImageView imgView;
     ProfilePictureView userPic;
     TextView userName, userBD, userEmail;
     CallbackManager callbackManager;
+    Bitmap bitmap = null;
+    String url;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,11 +80,11 @@ public class MainActivity extends AppCompatActivity {
         loginWithCustomizeButton();
         setUpSharingPhotoButton();
 
-        if (checkIfAlreadyLogin() == true){
+        if (checkIfAlreadyLogin() == true) {
             getUserProfile();
             getUserFriendList();
+            getUserPhoto();
         }
-
 
     }
 
@@ -79,7 +94,6 @@ public class MainActivity extends AppCompatActivity {
         userEmail.setText(email);
         userBD.setText(birthday);
         userPic.setProfileId(id);
-
     }
 
     private void setUpSharingPhotoButton() {
@@ -97,6 +111,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void initComponent() {
+        imgView = (ImageView) findViewById(R.id.photoImg);
         userPic = (ProfilePictureView) findViewById(R.id.userPic);
         userName = (TextView) findViewById(R.id.userName);
         userEmail = (TextView) findViewById(R.id.userEmail);
@@ -104,7 +119,7 @@ public class MainActivity extends AppCompatActivity {
         imageButton = (ImageButton) findViewById(R.id.loginBut);
         shareImageBut = (ImageButton) findViewById(R.id.shareImage);
         loginButton = (LoginButton) findViewById(R.id.login_Button);
-        loginButton.setReadPermissions(Arrays.asList("email", "public_profile", "user_friends", "user_birthday"));
+        loginButton.setReadPermissions(Arrays.asList("email", "public_profile", "user_friends", "user_posts"));
         callbackManager = CallbackManager.Factory.create();
     }
 
@@ -239,6 +254,20 @@ public class MainActivity extends AppCompatActivity {
         ShareDialog.show(this, content);
     }
 
+    //Get user friend list on Facebook
+    private void getUserFriendList(){
+        GraphRequest request = GraphRequest.newMyFriendsRequest(
+                AccessToken.getCurrentAccessToken(),
+                new GraphRequest.GraphJSONArrayCallback() {
+                    @Override
+                    public void onCompleted(JSONArray objects, GraphResponse response) {
+                        Log.d("fl", objects.toString());
+
+                    }
+                });
+        request.executeAsync();
+    }
+
     //Get user profile information: id, name, email, birthday
     private void getUserProfile(){
         GraphRequest request = GraphRequest.newMeRequest(
@@ -270,20 +299,87 @@ public class MainActivity extends AppCompatActivity {
         request.executeAsync();
     }
 
-    //Get user friend list on Facebook
-    private void getUserFriendList(){
-        GraphRequest request = GraphRequest.newMyFriendsRequest(
-                AccessToken.getCurrentAccessToken(),
-                new GraphRequest.GraphJSONArrayCallback() {
-                    @Override
-                    public void onCompleted(JSONArray objects, GraphResponse response) {
-                        Log.d("fl", objects.toString());
+    //Get user photo, album
 
+    private void getUserPhoto(){
+        //Make a request to get user id photos
+
+        GraphRequest request = GraphRequest.newMeRequest(
+                AccessToken.getCurrentAccessToken(),
+                new GraphRequest.GraphJSONObjectCallback() {
+                    @Override
+                    public void onCompleted(JSONObject object, GraphResponse response) {
+                        JSONObject obj;
+                        JSONArray arr;
+                        try {
+                            obj = object.getJSONObject("photos");
+                            arr = obj.getJSONArray("data");
+                            obj = arr.getJSONObject(0);
+                            getPhoto(obj.getString("id"));
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
                     }
-                });
+                }
+        );
+        Bundle params = new Bundle();
+        params.putString("fields", "photos");
+        request.setParameters(params);
         request.executeAsync();
     }
 
+    private void getPhoto(String iid){
+        //Make a request to get photo url
+        Log.d("fuck",iid.toString());
+        GraphRequest request = GraphRequest.newGraphPathRequest(
+                AccessToken.getCurrentAccessToken(),
+                "/" + iid + "/picture",
+                new GraphRequest.Callback() {
+                    @Override
+                    public void onCompleted(final GraphResponse response) {
+                        try {
+                            url = response.getJSONObject().getJSONObject("data").getString("url");
+                            new LoadProfileImage(imgView).execute(url);
+                        } catch (JSONException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+        );
+        Bundle params = new Bundle();
+        params.putBoolean("redirect", false);
+        request.setParameters(params);
+        request.executeAsync();
+    }
 
+    private class LoadProfileImage extends AsyncTask<String, Void, Bitmap> {
+        ImageView bmImage;
+
+        public LoadProfileImage(ImageView bmImage) {
+            this.bmImage = bmImage;
+
+        }
+
+        protected Bitmap doInBackground(String... urls) {
+
+            String urldisplay = urls[0];
+            Bitmap mIcon11 = null;
+
+            try {
+
+                InputStream in = new java.net.URL(urldisplay).openStream();
+                mIcon11 = BitmapFactory.decodeStream(in);
+            } catch (Exception e) {
+                Log.e("Error", e.getMessage());
+                e.printStackTrace();
+            }
+
+            return mIcon11;
+        }
+
+        protected void onPostExecute(Bitmap result) {
+            bmImage.setImageBitmap(result);
+        }
+    }
 
 }

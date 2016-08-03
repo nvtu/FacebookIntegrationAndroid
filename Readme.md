@@ -10,6 +10,8 @@ Facebook Integration with Android Facebook SDK 4.0:
 
 4) Get user's friend list who use this app
 
+5) Get user's photos
+
 ---Preparation:
 
 1) Get facebook debug key hash:

@@ -52,8 +52,15 @@
 
         <com.facebook.login.widget.ProfilePictureView
             android:layout_width="wrap_content"
-            android:layout_height="match_parent"
+            android:layout_height="wrap_content"
             android:id="@+id/userPic"/>
+
+        <ImageView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:id="@+id/photoImg"
+            android:src="@mipmap/ic_launcher" />
+
 
     </LinearLayout>
 
